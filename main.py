@@ -6,7 +6,9 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QThread, QUrl, Qt
+from PySide6.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -38,6 +40,28 @@ from settings import (
 )
 
 APP_NAME = "YoutubeVideoDownloader"
+
+def application_icon() -> QIcon:
+    """Generate a sharp Qt window/taskbar icon from the bundled SVG."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    svg = QSvgRenderer(str(base / "assets" / "app.svg"))
+    if not svg.isValid():
+        return QIcon()
+    pixmap = QPixmap(256, 256)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    svg.render(painter)
+    painter.end()
+    return QIcon(pixmap)
+
+def open_download_folder(folder: str) -> bool:
+    """Open the selected destination using Windows File Explorer."""
+    path = Path(folder).expanduser()
+    if not path.is_dir():
+        return False
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.resolve())))
+
 
 
 class ProxySettingsDialog(QDialog):
@@ -108,6 +132,7 @@ class MainWindow(QMainWindow):
 
         self.thread: QThread | None = None
         self.worker: DownloadWorker | None = None
+        self.active_download_directory: str | None = None
 
         root = QWidget()
         outer = QVBoxLayout(root)
@@ -243,6 +268,7 @@ class MainWindow(QMainWindow):
             return
         if not self._save_preferences():
             return
+        self.active_download_directory = self.settings["download_dir"]
 
         self.progress.setValue(0)
         self.status.setText("Подключение к YouTube…")
@@ -272,10 +298,13 @@ class MainWindow(QMainWindow):
         self.status.setText(description)
         if success:
             self.progress.setValue(100)
+            if self.active_download_directory and not open_download_folder(self.active_download_directory):
+                self.status.setText(description + " Не удалось открыть папку автоматически.")
 
     def thread_stopped(self) -> None:
         self.thread = None
         self.worker = None
+        self.active_download_directory = None
         self.download_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
         self.settings_button.setEnabled(True)
@@ -304,6 +333,7 @@ class MainWindow(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
+    app.setWindowIcon(application_icon())
     window = MainWindow()
     window.show()
     return app.exec()

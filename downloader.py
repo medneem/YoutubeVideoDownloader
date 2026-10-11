@@ -19,28 +19,14 @@ class DownloadCancelled(Exception):
 
 
 def find_program(name: str) -> str:
-    """Resolve external FFmpeg or Deno extracted from the onefile EXE.
-
-    In the packaged application only FFmpeg/FFprobe live beside the EXE.
-    Deno is embedded by PyInstaller and unpacked into sys._MEIPASS.
-    """
-    if getattr(sys, "frozen", False) and name == "deno":
-        bundle_dir = getattr(sys, "_MEIPASS", None)
-        bundled = Path(bundle_dir) / "deno.exe" if bundle_dir else None
-        if bundled is not None and bundled.is_file():
-            return str(bundled)
-        raise FileNotFoundError("Deno отсутствует внутри сборки приложения.")
-
+    """External binaries are stored next to the portable EXE, not _MEIPASS."""
     local = application_directory() / (name + ".exe")
     if local.is_file():
         return str(local)
-
-    # Local developer runs can use tools installed in the system PATH.
     if not getattr(sys, "frozen", False):
         system = shutil.which(name)
         if system:
             return system
-
     raise FileNotFoundError(
         f"Не найден {name}. Разместите {name}.exe рядом с "
         "YoutubeVideoDownloader.exe."

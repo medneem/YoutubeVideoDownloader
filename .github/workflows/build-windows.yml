@@ -73,18 +73,23 @@ jobs:
           & "tools/ffmpeg.exe" -version | Select-Object -First 1
           & "tools/deno.exe" --version | Select-Object -First 1
 
-      - name: Build single-file Windows EXE (Deno embedded)
+      - name: Render application icon
+        shell: pwsh
+        run: |
+          python scripts/build_icon.py
+          if ($LASTEXITCODE -ne 0) { throw "Failed to render icon" }
+          if (-not (Test-Path "assets/app.ico" -PathType Leaf)) { throw "Missing app.ico" }
+
+      - name: Build Windows onefile EXE with custom icon
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          if (-not (Test-Path "tools/deno.exe" -PathType Leaf)) { throw "Missing Deno for bundling" }
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name YoutubeVideoDownloader --version-file windows_version_info.txt --collect-all yt_dlp_ejs --add-binary "tools/deno.exe;." main.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name YoutubeVideoDownloader --version-file windows_version_info.txt --collect-all yt_dlp_ejs --icon "assets/app.ico" --add-data "assets/app.svg;assets" main.py
           if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
           if (-not (Test-Path "dist/YoutubeVideoDownloader.exe" -PathType Leaf)) { throw "Missing onefile EXE" }
-          $archiveContents = (& pyi-archive_viewer -l "dist/YoutubeVideoDownloader.exe" | Out-String)
-          if ($LASTEXITCODE -ne 0 -or $archiveContents -notmatch "deno\.exe") {
-            throw "Deno binary is not embedded in the single-file EXE"
-          }
+          $content = (& pyi-archive_viewer -l "dist/YoutubeVideoDownloader.exe" | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $content -notmatch "app\.svg") { throw "Icon SVG not embedded" }
+          if ($content -match "deno\.exe") { throw "Deno must be external, not embedded" }
 
       - name: Create and verify versioned portable ZIP
         shell: pwsh
@@ -95,15 +100,16 @@ jobs:
           Copy-Item "dist/YoutubeVideoDownloader.exe" (Join-Path $folder "YoutubeVideoDownloader.exe")
           Copy-Item "tools/ffmpeg.exe" (Join-Path $folder "ffmpeg.exe")
           Copy-Item "tools/ffprobe.exe" (Join-Path $folder "ffprobe.exe")
+          Copy-Item "tools/deno.exe" (Join-Path $folder "deno.exe")
           $version = "$env:BASE_VERSION.$env:GITHUB_RUN_NUMBER"
           $tag = "v$version"
           $archive = "YoutubeVideoDownloader-$tag-windows-x64.zip"
-          foreach ($name in @("YoutubeVideoDownloader.exe", "ffmpeg.exe", "ffprobe.exe")) {
+          foreach ($name in @("YoutubeVideoDownloader.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe")) {
             $file = Join-Path $folder $name
             if (-not (Test-Path $file -PathType Leaf)) { throw "Build output is missing: $file" }
             if ((Get-Item $file).Length -le 0) { throw "Build output is empty: $file" }
           }
-          foreach ($unexpected in @("_internal", "deno.exe", "config.json")) {
+          foreach ($unexpected in @("_internal", "config.json")) {
             if (Test-Path (Join-Path $folder $unexpected)) {
               throw "Unexpected file in onefile distribution: $unexpected"
             }
@@ -111,6 +117,7 @@ jobs:
           Set-Content -Path (Join-Path $folder "VERSION.txt") -Value $version -Encoding utf8
           Copy-Item "LICENSE" (Join-Path $folder "LICENSE")
           Copy-Item "THIRD_PARTY_NOTICES.md" (Join-Path $folder "THIRD_PARTY_NOTICES.md")
+          Copy-Item "assets/app.png" (Join-Path $folder "app-icon.png")
           Compress-Archive -Path $folder -DestinationPath $archive -CompressionLevel Optimal -Force
           if (-not (Test-Path $archive -PathType Leaf)) { throw "Missing build archive" }
           if ((Get-Item $archive).Length -le 0) { throw "Empty build archive" }
@@ -157,6 +164,6 @@ jobs:
             gh release create "$tag" "$zip" \
               --target "$GITHUB_SHA" \
               --title "YoutubeVideoDownloader $tag" \
-              --notes "Автоматический релиз Windows x64 из GitHub Actions pipeline #${GITHUB_RUN_NUMBER}. Скачайте ZIP, распакуйте всю папку и запустите YoutubeVideoDownloader.exe. HTTP-прокси по умолчанию выключен." \
+              --notes "Автоматический релиз Windows x64 из GitHub Actions pipeline #${GITHUB_RUN_NUMBER}. Скачайте ZIP, распакуйте всю папку и запустите YoutubeVideoDownloader.exe. Deno, FFmpeg и FFprobe находятся рядом с EXE; папка открывается после загрузки. HTTP-прокси по умолчанию выключен." \
               --latest
           fi

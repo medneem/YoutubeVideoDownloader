@@ -23,14 +23,16 @@ YoutubeVideoDownloader/
 ├── YoutubeVideoDownloader.exe
 ├── ffmpeg.exe
 ├── ffprobe.exe
+├── deno.exe
+├── app-icon.png
 ├── VERSION.txt
 ├── LICENSE
 └── THIRD_PARTY_NOTICES.md
 ```
 
-**Это сборка `--onefile`:** Python, PySide6, yt-dlp и Deno упакованы внутрь одного `YoutubeVideoDownloader.exe`. Папки `_internal` и отдельного `deno.exe` в архиве **нет**. При запуске PyInstaller временно распаковывает внутренние компоненты в системную временную папку; первый запуск может занимать больше времени, чем раньше.
+**Это сборка `--onefile`:** Python, PySide6 и yt-dlp упакованы внутрь одного `YoutubeVideoDownloader.exe`. **Deno снова находится отдельно, рядом с EXE**, как и FFmpeg. Папки `_internal` в архиве **нет**. При запуске PyInstaller временно распаковывает внутренние компоненты в системную временную папку; первый запуск может занимать больше времени, чем раньше.
 
-**Важно:** `ffmpeg.exe` и `ffprobe.exe` должны оставаться рядом с программой — они намеренно вынесены за пределы основного EXE. Не удаляйте их.
+**Важно:** `ffmpeg.exe`, `ffprobe.exe` и `deno.exe` должны оставаться рядом с программой — они намеренно вынесены за пределы основного EXE. Не удаляйте их.
 
 Windows SmartScreen может предупреждать, что EXE пока не имеет цифровой подписи.
 
@@ -40,6 +42,8 @@ Windows SmartScreen может предупреждать, что EXE пока �
 - Загрузка видео с выбором максимального разрешения: автоматически, 2160p, 1440p, 1080p, 720p, 480p или 360p (если доступно у исходника).
 - Извлечение аудио в MP3 (192 кбит/с).
 - Выбор папки, прогресс, скорость, примерное оставшееся время и отмена загрузки.
+- После успешной загрузки автоматически открывается папка в Проводнике; при ошибке или отмене не открывается.
+- Собственная многоразмерная иконка: в заголовке окна, на панели задач и в свойствах EXE.
 - Кнопка **«⚙ Настройки»** с HTTP/HTTPS-прокси.
 - Портативные настройки в `config.json` рядом с программой.
 - Версия приложения и автоматическая публикация GitHub Releases по номеру pipeline.
@@ -92,9 +96,9 @@ Git-тег:           v0.1.<номер workflow run>
 **Процесс CI/CD:**
 
 1. Установка зависимостей, генерация версии и запуск тестов.
-2. Загрузка FFmpeg, FFprobe и Deno для Windows x64.
-3. PyInstaller `--onefile`: Deno встраивается внутрь EXE.
-4. Проверка, что EXE содержит Deno, а итоговый ZIP содержит EXE + FFmpeg + FFprobe, но не содержит `_internal`.
+2. Загрузка FFmpeg, FFprobe и Deno для Windows x64; создание многомасштабной иконки из `assets/app.svg`.
+3. PyInstaller `--onefile`: только Python-зависимости, Qt и иконка встроены в EXE.
+4. Проверка, что ZIP содержит EXE, FFmpeg, FFprobe и Deno, но не содержит `_internal`.
 5. Загрузка ZIP в **Actions → Artifacts**. Отсутствие архива завершает pipeline ошибкой.
 6. После успешной сборки `main` автоматическое создание **GitHub Release**, куда добавляется **тот же ZIP**.
 
@@ -136,6 +140,8 @@ python scripts/stamp_version.py 0.1 42
 ```text
 .github/workflows/build-windows.yml   # CI, ZIP и GitHub Releases
 scripts/stamp_version.py             # нумерация по pipeline
+scripts/build_icon.py                 # конвертация SVG в ICO
+assets/app.svg                        # исходник иконки
 main.py                              # интерфейс PySide6
 downloader.py                        # yt-dlp и поиск Deno/FFmpeg
 settings.py                          # работа с config.json
@@ -150,7 +156,8 @@ README.md                            # документация
 
 - [x] Портативная Windows-версия, русский интерфейс и HTTP-прокси.
 - [x] `config.json` рядом с EXE, прокси выключен по умолчанию.
-- [x] Сборка `--onefile` с внешними FFmpeg и FFprobe.
+- [x] Сборка `--onefile` с внешними FFmpeg, FFprobe и Deno.
+- [x] Новая иконка приложения и открытие папки после успешной загрузки.
 - [x] GitHub Actions: ZIP в Artifacts и автоматические Releases.
 - [ ] Очередь, плейлисты, параллельные загрузки.
 - [ ] Субтитры, обложки, дополнительные кодеки и форматы.

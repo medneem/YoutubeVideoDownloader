@@ -25,35 +25,24 @@ class DownloaderOptionsTest(unittest.TestCase):
             postprocessor_hook=lambda info: None,
         )
 
-    def test_onefile_deno_is_embedded_but_ffmpeg_external(self):
+    def test_deno_ffmpeg_and_ffprobe_are_external(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            app_dir = root / "app"
-            bundle_dir = root / "extracted"
-            app_dir.mkdir()
-            bundle_dir.mkdir()
-            embedded = bundle_dir / "deno.exe"
-            external = app_dir / "ffmpeg.exe"
-            embedded.write_bytes(b"fake-deno-for-path-test")
-            external.write_bytes(b"fake-ffmpeg-for-path-test")
+            ext = root / "app"
+            internal = root / "_MEIPASS"
+            ext.mkdir()
+            internal.mkdir()
+            (internal / "deno.exe").write_bytes(b"obsolete")
+            for name in ("deno", "ffmpeg", "ffprobe"):
+                (ext / (name + ".exe")).write_bytes(b"external")
             with (
-                patch("downloader.application_directory", return_value=app_dir),
+                patch("downloader.application_directory", return_value=ext),
                 patch.object(downloader.sys, "frozen", True, create=True),
-                patch.object(downloader.sys, "_MEIPASS", str(bundle_dir), create=True),
+                patch.object(downloader.sys, "_MEIPASS", str(internal), create=True),
             ):
-                self.assertEqual(downloader.find_program("deno"), str(embedded))
-                self.assertEqual(downloader.find_program("ffmpeg"), str(external))
-                self.assertFalse((app_dir / "deno.exe").exists())
-                external.unlink()
-                with self.assertRaises(FileNotFoundError):
-                    downloader.find_program("ffmpeg")
-
-    def test_missing_embedded_deno_fails_in_frozen_application(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            with (
-                patch.object(downloader.sys, "frozen", True, create=True),
-                patch.object(downloader.sys, "_MEIPASS", temporary, create=True),
-            ):
+                for name in ("deno", "ffmpeg", "ffprobe"):
+                    self.assertEqual(downloader.find_program(name), str(ext / (name + ".exe")))
+                (ext / "deno.exe").unlink()
                 with self.assertRaises(FileNotFoundError):
                     downloader.find_program("deno")
 
