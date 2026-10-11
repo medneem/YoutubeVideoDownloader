@@ -1,0 +1,18 @@
+# Portable application: user configuration must never go to Git
+config.json
+config.json.tmp
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.zip
+tools/
