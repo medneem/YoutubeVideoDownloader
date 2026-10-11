@@ -10,7 +10,7 @@ from PySide6.QtSvg import QSvgRenderer
 def main():
     root = Path(__file__).resolve().parent.parent
     svg = root / "assets" / "app.svg"
-    QGuiApplication.instance() or QGuiApplication([])
+    app = QGuiApplication.instance() or QGuiApplication([])
     renderer = QSvgRenderer(str(svg))
     if not renderer.isValid():
         raise RuntimeError("Invalid application SVG")
