@@ -1,0 +1,92 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-portable:
+    name: Windows x64 portable ZIP
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+
+      - name: Validate source and run unit tests
+        run: |
+          python -m compileall -q main.py downloader.py settings.py tests
+          python -m unittest discover -s tests -v
+
+      - name: Build Windows application with PyInstaller
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name YoutubeVideoDownloader --collect-all yt_dlp_ejs main.py
+
+      - name: Download FFmpeg and Deno for portable distribution
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force tools | Out-Null
+
+          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile "tools/ffmpeg.zip"
+          Expand-Archive -Path "tools/ffmpeg.zip" -DestinationPath "tools/ffmpeg" -Force
+          $ffmpeg = Get-ChildItem "tools/ffmpeg" -Recurse -Filter "ffmpeg.exe" -File | Select-Object -First 1
+          $ffprobe = Get-ChildItem "tools/ffmpeg" -Recurse -Filter "ffprobe.exe" -File | Select-Object -First 1
+          if (-not $ffmpeg -or -not $ffprobe) { throw "FFmpeg or FFprobe missing from downloaded archive" }
+          Copy-Item $ffmpeg.FullName "dist/YoutubeVideoDownloader/ffmpeg.exe"
+          Copy-Item $ffprobe.FullName "dist/YoutubeVideoDownloader/ffprobe.exe"
+
+          $denoUrl = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
+          Invoke-WebRequest -Uri $denoUrl -OutFile "tools/deno.zip"
+          Expand-Archive -Path "tools/deno.zip" -DestinationPath "tools/deno" -Force
+          $deno = Get-ChildItem "tools/deno" -Recurse -Filter "deno.exe" -File | Select-Object -First 1
+          if (-not $deno) { throw "Deno missing from downloaded archive" }
+          Copy-Item $deno.FullName "dist/YoutubeVideoDownloader/deno.exe"
+
+          & "dist/YoutubeVideoDownloader/ffmpeg.exe" -version | Select-Object -First 1
+          & "dist/YoutubeVideoDownloader/deno.exe" --version | Select-Object -First 1
+
+      - name: Create and verify portable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $folder = "dist/YoutubeVideoDownloader"
+          foreach ($name in @("YoutubeVideoDownloader.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe")) {
+            $file = Join-Path $folder $name
+            if (-not (Test-Path $file -PathType Leaf)) { throw "Build output is missing: $file" }
+            if ((Get-Item $file).Length -le 0) { throw "Build output is empty: $file" }
+          }
+          $archive = "YoutubeVideoDownloader-windows-x64.zip"
+          Compress-Archive -Path $folder -DestinationPath $archive -CompressionLevel Optimal -Force
+          if (-not (Test-Path $archive -PathType Leaf)) { throw "Missing build archive" }
+          if ((Get-Item $archive).Length -le 0) { throw "Empty build archive" }
+          Write-Host "Ready: $archive"
+
+      - name: Upload portable program archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: YoutubeVideoDownloader-windows-x64
+          path: YoutubeVideoDownloader-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
