@@ -16,3 +16,6 @@ dist/
 *.spec
 *.zip
 tools/
+
+# Generated at build time; version.py stays tracked for development
+windows_version_info.txt

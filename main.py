@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from downloader import DownloadWorker
+from version import APP_VERSION
 from settings import (
     default_settings,
     load_settings,
@@ -91,7 +92,7 @@ class ProxySettingsDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(APP_NAME)
+        self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
         self.resize(680, 375)
         self.setMinimumWidth(570)
         try:
@@ -118,6 +119,9 @@ class MainWindow(QMainWindow):
         self.settings_button = QPushButton("⚙ Настройки")
         self.settings_button.clicked.connect(self.open_settings)
         top.addWidget(title, 1)
+        version_label = QLabel(f"v{APP_VERSION}")
+        version_label.setToolTip("Версия соответствует номеру GitHub Actions pipeline")
+        top.addWidget(version_label)
         top.addWidget(self.settings_button)
         outer.addLayout(top)
 

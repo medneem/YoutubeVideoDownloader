@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Bump the minor release line here; the last component is github.run_number.
+env:
+  BASE_VERSION: "0.1"
+
 permissions:
   contents: read
 
@@ -33,14 +37,20 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-build.txt
 
+      - name: Stamp version from GitHub Actions run number
+        shell: pwsh
+        run: |
+          python scripts/stamp_version.py "$env:BASE_VERSION" "$env:GITHUB_RUN_NUMBER"
+          python -c "from version import APP_VERSION; print('Building version:', APP_VERSION)"
+
       - name: Validate source and run unit tests
         run: |
-          python -m compileall -q main.py downloader.py settings.py tests
+          python -m compileall -q main.py downloader.py settings.py version.py scripts tests
           python -m unittest discover -s tests -v
 
       - name: Build Windows application with PyInstaller
         run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name YoutubeVideoDownloader --collect-all yt_dlp_ejs main.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name YoutubeVideoDownloader --version-file windows_version_info.txt --collect-all yt_dlp_ejs main.py
 
       - name: Download FFmpeg and Deno for portable distribution
         shell: pwsh
@@ -67,17 +77,22 @@ jobs:
           & "dist/YoutubeVideoDownloader/ffmpeg.exe" -version | Select-Object -First 1
           & "dist/YoutubeVideoDownloader/deno.exe" --version | Select-Object -First 1
 
-      - name: Create and verify portable ZIP
+      - name: Create and verify versioned portable ZIP
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $folder = "dist/YoutubeVideoDownloader"
+          $version = "$env:BASE_VERSION.$env:GITHUB_RUN_NUMBER"
+          $tag = "v$version"
+          $archive = "YoutubeVideoDownloader-$tag-windows-x64.zip"
           foreach ($name in @("YoutubeVideoDownloader.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe")) {
             $file = Join-Path $folder $name
             if (-not (Test-Path $file -PathType Leaf)) { throw "Build output is missing: $file" }
             if ((Get-Item $file).Length -le 0) { throw "Build output is empty: $file" }
           }
-          $archive = "YoutubeVideoDownloader-windows-x64.zip"
+          Set-Content -Path (Join-Path $folder "VERSION.txt") -Value $version -Encoding utf8
+          Copy-Item "LICENSE" (Join-Path $folder "LICENSE")
+          Copy-Item "THIRD_PARTY_NOTICES.md" (Join-Path $folder "THIRD_PARTY_NOTICES.md")
           Compress-Archive -Path $folder -DestinationPath $archive -CompressionLevel Optimal -Force
           if (-not (Test-Path $archive -PathType Leaf)) { throw "Missing build archive" }
           if ((Get-Item $archive).Length -le 0) { throw "Empty build archive" }
@@ -86,7 +101,44 @@ jobs:
       - name: Upload portable program archive
         uses: actions/upload-artifact@v4
         with:
-          name: YoutubeVideoDownloader-windows-x64
-          path: YoutubeVideoDownloader-windows-x64.zip
+          name: YoutubeVideoDownloader-v${{ env.BASE_VERSION }}.${{ github.run_number }}-windows-x64
+          path: YoutubeVideoDownloader-v${{ env.BASE_VERSION }}.${{ github.run_number }}-windows-x64.zip
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: windows-portable
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download versioned build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: YoutubeVideoDownloader-v${{ env.BASE_VERSION }}.${{ github.run_number }}-windows-x64
+          path: release
+
+      - name: Create or update the GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="v${BASE_VERSION}.${GITHUB_RUN_NUMBER}"
+          zip="release/YoutubeVideoDownloader-${tag}-windows-x64.zip"
+          test -s "$zip"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "Release $tag already exists; updating ZIP (workflow rerun)."
+            gh release upload "$tag" "$zip" --clobber
+          else
+            gh release create "$tag" "$zip" \
+              --target "$GITHUB_SHA" \
+              --title "YoutubeVideoDownloader $tag" \
+              --notes "Автоматический релиз Windows x64 из GitHub Actions pipeline #${GITHUB_RUN_NUMBER}. Скачайте ZIP, распакуйте всю папку и запустите YoutubeVideoDownloader.exe. HTTP-прокси по умолчанию выключен." \
+              --latest
+          fi

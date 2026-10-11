@@ -18,6 +18,8 @@ class SettingsTest(unittest.TestCase):
             folder = Path(directory)
             settings = load_settings(folder)
             self.assertEqual(settings["mode"], "video")
+            self.assertFalse(settings["proxy_enabled"])
+            self.assertEqual(settings["proxy_url"], "")
             self.assertTrue((folder / "config.json").is_file())
 
     def test_settings_roundtrip_with_proxy(self):
