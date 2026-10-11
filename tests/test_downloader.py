@@ -1,4 +1,9 @@
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+import downloader
 
 from downloader import build_download_options
 
@@ -19,6 +24,38 @@ class DownloaderOptionsTest(unittest.TestCase):
             progress_hook=lambda info: None,
             postprocessor_hook=lambda info: None,
         )
+
+    def test_onefile_deno_is_embedded_but_ffmpeg_external(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app_dir = root / "app"
+            bundle_dir = root / "extracted"
+            app_dir.mkdir()
+            bundle_dir.mkdir()
+            embedded = bundle_dir / "deno.exe"
+            external = app_dir / "ffmpeg.exe"
+            embedded.write_bytes(b"fake-deno-for-path-test")
+            external.write_bytes(b"fake-ffmpeg-for-path-test")
+            with (
+                patch("downloader.application_directory", return_value=app_dir),
+                patch.object(downloader.sys, "frozen", True, create=True),
+                patch.object(downloader.sys, "_MEIPASS", str(bundle_dir), create=True),
+            ):
+                self.assertEqual(downloader.find_program("deno"), str(embedded))
+                self.assertEqual(downloader.find_program("ffmpeg"), str(external))
+                self.assertFalse((app_dir / "deno.exe").exists())
+                external.unlink()
+                with self.assertRaises(FileNotFoundError):
+                    downloader.find_program("ffmpeg")
+
+    def test_missing_embedded_deno_fails_in_frozen_application(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch.object(downloader.sys, "frozen", True, create=True),
+                patch.object(downloader.sys, "_MEIPASS", temporary, create=True),
+            ):
+                with self.assertRaises(FileNotFoundError):
+                    downloader.find_program("deno")
 
     def test_video_quality(self):
         options = self.options(quality="1080")

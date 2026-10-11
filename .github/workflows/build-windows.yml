@@ -48,10 +48,6 @@ jobs:
           python -m compileall -q main.py downloader.py settings.py version.py scripts tests
           python -m unittest discover -s tests -v
 
-      - name: Build Windows application with PyInstaller
-        run: |
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --name YoutubeVideoDownloader --version-file windows_version_info.txt --collect-all yt_dlp_ejs main.py
-
       - name: Download FFmpeg and Deno for portable distribution
         shell: pwsh
         run: |
@@ -64,31 +60,53 @@ jobs:
           $ffmpeg = Get-ChildItem "tools/ffmpeg" -Recurse -Filter "ffmpeg.exe" -File | Select-Object -First 1
           $ffprobe = Get-ChildItem "tools/ffmpeg" -Recurse -Filter "ffprobe.exe" -File | Select-Object -First 1
           if (-not $ffmpeg -or -not $ffprobe) { throw "FFmpeg or FFprobe missing from downloaded archive" }
-          Copy-Item $ffmpeg.FullName "dist/YoutubeVideoDownloader/ffmpeg.exe"
-          Copy-Item $ffprobe.FullName "dist/YoutubeVideoDownloader/ffprobe.exe"
+          Copy-Item $ffmpeg.FullName "tools/ffmpeg.exe"
+          Copy-Item $ffprobe.FullName "tools/ffprobe.exe"
 
           $denoUrl = "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip"
           Invoke-WebRequest -Uri $denoUrl -OutFile "tools/deno.zip"
           Expand-Archive -Path "tools/deno.zip" -DestinationPath "tools/deno" -Force
           $deno = Get-ChildItem "tools/deno" -Recurse -Filter "deno.exe" -File | Select-Object -First 1
           if (-not $deno) { throw "Deno missing from downloaded archive" }
-          Copy-Item $deno.FullName "dist/YoutubeVideoDownloader/deno.exe"
+          Copy-Item $deno.FullName "tools/deno.exe"
 
-          & "dist/YoutubeVideoDownloader/ffmpeg.exe" -version | Select-Object -First 1
-          & "dist/YoutubeVideoDownloader/deno.exe" --version | Select-Object -First 1
+          & "tools/ffmpeg.exe" -version | Select-Object -First 1
+          & "tools/deno.exe" --version | Select-Object -First 1
+
+      - name: Build single-file Windows EXE (Deno embedded)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Test-Path "tools/deno.exe" -PathType Leaf)) { throw "Missing Deno for bundling" }
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name YoutubeVideoDownloader --version-file windows_version_info.txt --collect-all yt_dlp_ejs --add-binary "tools/deno.exe;." main.py
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed" }
+          if (-not (Test-Path "dist/YoutubeVideoDownloader.exe" -PathType Leaf)) { throw "Missing onefile EXE" }
+          $archiveContents = (& pyi-archive_viewer -l "dist/YoutubeVideoDownloader.exe" | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $archiveContents -notmatch "deno\.exe") {
+            throw "Deno binary is not embedded in the single-file EXE"
+          }
 
       - name: Create and verify versioned portable ZIP
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $folder = "dist/YoutubeVideoDownloader"
+          $folder = "release/YoutubeVideoDownloader"
+          New-Item -ItemType Directory -Force $folder | Out-Null
+          Copy-Item "dist/YoutubeVideoDownloader.exe" (Join-Path $folder "YoutubeVideoDownloader.exe")
+          Copy-Item "tools/ffmpeg.exe" (Join-Path $folder "ffmpeg.exe")
+          Copy-Item "tools/ffprobe.exe" (Join-Path $folder "ffprobe.exe")
           $version = "$env:BASE_VERSION.$env:GITHUB_RUN_NUMBER"
           $tag = "v$version"
           $archive = "YoutubeVideoDownloader-$tag-windows-x64.zip"
-          foreach ($name in @("YoutubeVideoDownloader.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe")) {
+          foreach ($name in @("YoutubeVideoDownloader.exe", "ffmpeg.exe", "ffprobe.exe")) {
             $file = Join-Path $folder $name
             if (-not (Test-Path $file -PathType Leaf)) { throw "Build output is missing: $file" }
             if ((Get-Item $file).Length -le 0) { throw "Build output is empty: $file" }
+          }
+          foreach ($unexpected in @("_internal", "deno.exe", "config.json")) {
+            if (Test-Path (Join-Path $folder $unexpected)) {
+              throw "Unexpected file in onefile distribution: $unexpected"
+            }
           }
           Set-Content -Path (Join-Path $folder "VERSION.txt") -Value $version -Encoding utf8
           Copy-Item "LICENSE" (Join-Path $folder "LICENSE")
