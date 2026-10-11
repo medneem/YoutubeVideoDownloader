@@ -91,36 +91,96 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $content -notmatch "app\.svg") { throw "Icon SVG not embedded" }
           if ($content -match "deno\.exe") { throw "Deno must be external, not embedded" }
 
-      - name: Create and verify versioned portable ZIP
+      - name: Create and verify flat portable ZIP
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+
+          # Start with a clean staging directory: never mix an older onedir build
+          # with the onefile release, even when the runner workspace is reused.
           $folder = "release/YoutubeVideoDownloader"
+          if (Test-Path $folder) {
+            Remove-Item -Recurse -Force $folder
+          }
           New-Item -ItemType Directory -Force $folder | Out-Null
+
+          $version = "$env:BASE_VERSION.$env:GITHUB_RUN_NUMBER"
+          $archive = "YoutubeVideoDownloader-v$version-windows-x64.zip"
+          if (Test-Path $archive) {
+            Remove-Item -Force $archive
+          }
+
           Copy-Item "dist/YoutubeVideoDownloader.exe" (Join-Path $folder "YoutubeVideoDownloader.exe")
           Copy-Item "tools/ffmpeg.exe" (Join-Path $folder "ffmpeg.exe")
           Copy-Item "tools/ffprobe.exe" (Join-Path $folder "ffprobe.exe")
           Copy-Item "tools/deno.exe" (Join-Path $folder "deno.exe")
-          $version = "$env:BASE_VERSION.$env:GITHUB_RUN_NUMBER"
-          $tag = "v$version"
-          $archive = "YoutubeVideoDownloader-$tag-windows-x64.zip"
-          foreach ($name in @("YoutubeVideoDownloader.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe")) {
-            $file = Join-Path $folder $name
-            if (-not (Test-Path $file -PathType Leaf)) { throw "Build output is missing: $file" }
-            if ((Get-Item $file).Length -le 0) { throw "Build output is empty: $file" }
-          }
-          foreach ($unexpected in @("_internal", "config.json")) {
-            if (Test-Path (Join-Path $folder $unexpected)) {
-              throw "Unexpected file in onefile distribution: $unexpected"
-            }
-          }
-          Set-Content -Path (Join-Path $folder "VERSION.txt") -Value $version -Encoding utf8
           Copy-Item "LICENSE" (Join-Path $folder "LICENSE")
           Copy-Item "THIRD_PARTY_NOTICES.md" (Join-Path $folder "THIRD_PARTY_NOTICES.md")
           Copy-Item "assets/app.png" (Join-Path $folder "app-icon.png")
-          Compress-Archive -Path $folder -DestinationPath $archive -CompressionLevel Optimal -Force
-          if (-not (Test-Path $archive -PathType Leaf)) { throw "Missing build archive" }
-          if ((Get-Item $archive).Length -le 0) { throw "Empty build archive" }
+          Set-Content -Path (Join-Path $folder "VERSION.txt") -Value $version -Encoding utf8
+
+          # Exactly these flat files are allowed in the published archive.
+          # In particular _internal, nested directories and config.json must NOT ship.
+          $expected = @(
+            "YoutubeVideoDownloader.exe",
+            "ffmpeg.exe",
+            "ffprobe.exe",
+            "deno.exe",
+            "VERSION.txt",
+            "LICENSE",
+            "THIRD_PARTY_NOTICES.md",
+            "app-icon.png"
+          )
+
+          $files = @(Get-ChildItem -LiteralPath $folder -File)
+          $subfolders = @(Get-ChildItem -LiteralPath $folder -Directory)
+          if ($subfolders.Count -ne 0) {
+            throw "Unexpected directories in distribution: $($subfolders.Name -join ', ')"
+          }
+          if ($files.Count -ne $expected.Count) {
+            throw "Expected $($expected.Count) files, found $($files.Count)"
+          }
+          foreach ($name in $expected) {
+            $file = Join-Path $folder $name
+            if (-not (Test-Path $file -PathType Leaf)) { throw "Missing distribution file: $file" }
+            if ((Get-Item $file).Length -le 0) { throw "Empty distribution file: $file" }
+          }
+          foreach ($file in $files) {
+            if ($file.Name -notin $expected) { throw "Unexpected distribution file: $($file.Name)" }
+          }
+
+          # Archive CONTENTS, not the folder itself, avoiding an extra directory
+          # level and any stale _internal left over from older onedir releases.
+          Compress-Archive -Path (Join-Path $folder "*") -DestinationPath $archive -CompressionLevel Optimal -Force
+
+          if (-not (Test-Path $archive -PathType Leaf)) {
+            throw "Missing portable ZIP"
+          }
+          Add-Type -AssemblyName System.IO.Compression
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $archive).Path)
+          try {
+            $entries = @($zip.Entries)
+            if ($entries.Count -ne $expected.Count) {
+              throw "ZIP contains $($entries.Count) entries, expected $($expected.Count)"
+            }
+            foreach ($entry in $entries) {
+              if ($entry.FullName -notin $expected) {
+                throw "Unexpected ZIP entry: $($entry.FullName)"
+              }
+              if ($entry.Length -le 0) {
+                throw "Empty file in ZIP: $($entry.FullName)"
+              }
+            }
+            foreach ($name in $expected) {
+              if ($name -notin @($entries | ForEach-Object { $_.FullName })) {
+                throw "Missing ZIP entry: $name"
+              }
+            }
+            Write-Host "Verified ZIP contains exactly $($expected.Count) flat files, without _internal."
+          }
+          finally {
+            $zip.Dispose()
+          }
           Write-Host "Ready: $archive"
 
       - name: Upload portable program archive
