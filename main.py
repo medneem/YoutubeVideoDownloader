@@ -180,7 +180,8 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.download_button)
         outer.addLayout(controls)
 
-        self._on_mode_changed()
+        # Do not overwrite an unreadable config.json automatically at startup.
+        self.quality.setEnabled(self.mode.currentData() == "video")
         self.statusBar().showMessage(f"Настройки: {settings_file()}")
 
     def _on_mode_changed(self) -> None:
