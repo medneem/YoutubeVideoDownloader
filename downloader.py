@@ -87,9 +87,21 @@ def build_download_options(
     return options
 
 
+def final_download_path(info: dict | None) -> Path | None:
+    """Return the existing final file reported by yt-dlp after postprocessing."""
+    if not isinstance(info, dict):
+        return None
+    filepath = info.get("filepath")
+    if not isinstance(filepath, str) or not filepath:
+        return None
+    result = Path(filepath).expanduser()
+    return result if result.is_file() else None
+
+
 class DownloadWorker(QObject):
     progress = Signal(int, str)
     finished = Signal(bool, str)
+    file_saved = Signal(str)
 
     def __init__(self, url: str, settings: dict) -> None:
         super().__init__()
@@ -153,8 +165,11 @@ class DownloadWorker(QObject):
                 postprocessor_hook=self._postprocessor_hook,
             )
             with yt_dlp.YoutubeDL(options) as downloader:
-                downloader.download([self.url])
+                info = downloader.extract_info(self.url, download=True)
             self._check_cancel()
+            saved_path = final_download_path(info)
+            if saved_path is not None:
+                self.file_saved.emit(str(saved_path))
         except Exception as exc:
             if self._cancel_requested.is_set() or isinstance(exc, DownloadCancelled):
                 self.finished.emit(False, "Загрузка отменена.")

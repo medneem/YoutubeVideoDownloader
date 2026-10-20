@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} v{APP_VERSION}")
-        self.resize(680, 375)
+        self.resize(680, 410)
         self.setMinimumWidth(570)
         try:
             self.settings = load_settings()
@@ -266,6 +266,14 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.progress)
         outer.addWidget(self.status)
 
+        self.final_filename = QLineEdit()
+        self.final_filename.setReadOnly(True)
+        self.final_filename.setPlaceholderText("Появится после завершения загрузки")
+        filename_row = QHBoxLayout()
+        filename_row.addWidget(QLabel("Итоговый файл:"))
+        filename_row.addWidget(self.final_filename, 1)
+        outer.addLayout(filename_row)
+
         controls = QHBoxLayout()
         self.download_button = QPushButton("Скачать")
         self.download_button.setDefault(True)
@@ -340,6 +348,8 @@ class MainWindow(QMainWindow):
         self.active_download_directory = self.settings["download_dir"]
 
         self.progress.setValue(0)
+        self.final_filename.clear()
+        self.final_filename.setToolTip("")
         self.status.setText("Подключение к YouTube…")
         self.download_button.setEnabled(False)
         self.cancel_button.setEnabled(True)
@@ -352,6 +362,7 @@ class MainWindow(QMainWindow):
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.progress.connect(self.update_progress)
+        self.worker.file_saved.connect(self.show_final_filename)
         self.worker.finished.connect(self.download_finished)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
@@ -362,6 +373,11 @@ class MainWindow(QMainWindow):
     def update_progress(self, value: int, description: str) -> None:
         self.progress.setValue(value)
         self.status.setText(description)
+
+    def show_final_filename(self, filepath: str) -> None:
+        self.final_filename.setText(Path(filepath).name)
+        self.final_filename.setCursorPosition(0)
+        self.final_filename.setToolTip(filepath)
 
     def download_finished(self, success: bool, description: str) -> None:
         self.status.setText(description)

@@ -118,5 +118,67 @@ class DownloaderOptionsTest(unittest.TestCase):
                 self.options(cookies_mode="file", cookies_file=path)
 
 
+class FinalFileNameTest(unittest.TestCase):
+    def test_reports_existing_video_after_merge(self):
+        with tempfile.TemporaryDirectory() as temp:
+            filename = Path(temp) / "Тест [abc] [1080p].mp4"
+            filename.write_bytes(b"merged MP4")
+            self.assertEqual(downloader.final_download_path({"filepath": str(filename)}), filename)
+
+    def test_reports_final_mp3_not_source_extension(self):
+        with tempfile.TemporaryDirectory() as temp:
+            mp3 = Path(temp) / "Музыка [abc] [MP3 192kbps].mp3"
+            mp3.write_bytes(b"converted MP3")
+            info = {"filepath": str(mp3), "ext": "webm", "_filename": "source.webm"}
+            self.assertEqual(downloader.final_download_path(info), mp3)
+
+    def test_does_not_report_missing_or_temporary_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            missing = Path(temp) / "not-saved.mp4"
+            self.assertIsNone(downloader.final_download_path({"filepath": str(missing)}))
+            self.assertIsNone(downloader.final_download_path({"ext": "mp4"}))
+            self.assertIsNone(downloader.final_download_path(None))
+
+
+class DownloadWorkerFinalNameTest(unittest.TestCase):
+    def test_emits_actual_filename_after_successful_download(self):
+        with tempfile.TemporaryDirectory() as temp:
+            name = Path(temp) / "Результат [id] [MP3 192kbps].mp3"
+            name.write_bytes(b"mp3")
+            settings = {
+                "download_dir": temp,
+                "mode": "audio",
+                "quality": "best",
+                "proxy_enabled": False,
+                "proxy_url": "",
+                "cookies_mode": "none",
+            }
+            worker = downloader.DownloadWorker("https://www.youtube.com/watch?v=test", settings)
+            actual_files, completions = [], []
+            worker.file_saved.connect(actual_files.append)
+            worker.finished.connect(lambda success, message: completions.append((success, message)))
+
+            class FakeDownloader:
+                def __init__(self, options):
+                    self.options = options
+                def __enter__(self):
+                    return self
+                def __exit__(self, *args):
+                    return False
+                def extract_info(self, url, download=False):
+                    assert download is True
+                    return {"filepath": str(name), "ext": "webm"}
+
+            with (
+                patch("downloader.find_program", side_effect=lambda p: f"C:/tools/{p}.exe"),
+                patch("downloader.yt_dlp.YoutubeDL", FakeDownloader),
+            ):
+                worker.run()
+
+            self.assertEqual(actual_files, [str(name)])
+            self.assertEqual(len(completions), 1)
+            self.assertTrue(completions[0][0])
+
+
 if __name__ == "__main__":
     unittest.main()
