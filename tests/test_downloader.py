@@ -57,10 +57,32 @@ class DownloaderOptionsTest(unittest.TestCase):
         self.assertIn("height<=1080", options["format"])
         self.assertEqual(options["merge_output_format"], "mp4")
         self.assertEqual(options["proxy"], "")
+        self.assertEqual(
+            options["outtmpl"],
+            "%(title)s [%(id)s] [%(height)sp].%(ext)s",
+        )
 
     def test_mp3(self):
         options = self.options(mode="audio")
         self.assertEqual(options["postprocessors"][0]["preferredcodec"], "mp3")
+        self.assertEqual(
+            options["outtmpl"],
+            "%(title)s [%(id)s] [MP3 192kbps].%(ext)s",
+        )
+
+    def test_best_quality_uses_actual_resolution_in_name(self):
+        options = self.options(quality="best")
+        self.assertEqual(
+            options["outtmpl"],
+            "%(title)s [%(id)s] [%(height)sp].%(ext)s",
+        )
+
+    def test_repeated_download_overwrites_instead_of_resuming(self):
+        for mode in ("video", "audio"):
+            with self.subTest(mode=mode):
+                options = self.options(mode=mode)
+                self.assertTrue(options["overwrites"])
+                self.assertFalse(options["continuedl"])
 
     def test_http_proxy_and_deno(self):
         options = self.options(proxy=True)

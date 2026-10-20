@@ -44,13 +44,13 @@ def build_download_options(
     output = Path(settings["download_dir"]).expanduser()
     options = {
         "paths": {"home": str(output)},
-        "outtmpl": "%(title)s [%(id)s].%(ext)s",
+        "outtmpl": "%(title)s [%(id)s] [%(height)sp].%(ext)s",
         "noplaylist": True,
         "ignoreerrors": False,
         "quiet": True,
         "no_warnings": False,
-        "overwrites": False,
-        "continuedl": True,
+        "overwrites": True,
+        "continuedl": False,
         "ffmpeg_location": str(Path(ffmpeg_exe).parent),
         "js_runtimes": {"deno": {"path": deno_exe}},
         "proxy": settings["proxy_url"] if settings["proxy_enabled"] else "",
@@ -68,6 +68,7 @@ def build_download_options(
             )
         options["cookiefile"] = str(cookies_file)
     if settings["mode"] == "audio":
+        options["outtmpl"] = "%(title)s [%(id)s] [MP3 192kbps].%(ext)s"
         options["format"] = "bestaudio/best"
         options["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
