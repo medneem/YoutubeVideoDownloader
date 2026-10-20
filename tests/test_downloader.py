@@ -9,13 +9,19 @@ from downloader import build_download_options
 
 
 class DownloaderOptionsTest(unittest.TestCase):
-    def options(self, mode="video", quality="best", proxy=False):
+    def options(
+        self, mode="video", quality="best", proxy=False,
+        cookies_mode="none", cookies_browser="chrome", cookies_file="",
+    ):
         settings = {
             "download_dir": "C:/Downloads",
             "mode": mode,
             "quality": quality,
             "proxy_enabled": proxy,
             "proxy_url": "http://127.0.0.1:8118",
+            "cookies_mode": cookies_mode,
+            "cookies_browser": cookies_browser,
+            "cookies_file": cookies_file,
         }
         return build_download_options(
             settings,
@@ -62,6 +68,32 @@ class DownloaderOptionsTest(unittest.TestCase):
         self.assertEqual(
             options["js_runtimes"]["deno"]["path"], "C:/tools/deno.exe"
         )
+
+    def test_cookies_are_off_by_default(self):
+        options = self.options()
+        self.assertNotIn("cookiesfrombrowser", options)
+        self.assertNotIn("cookiefile", options)
+
+    def test_cookies_from_browser(self):
+        for browser in ("chrome", "firefox", "edge"):
+            with self.subTest(browser=browser):
+                options = self.options(cookies_mode="browser", cookies_browser=browser)
+                self.assertEqual(options["cookiesfrombrowser"], (browser,))
+                self.assertNotIn("cookiefile", options)
+
+    def test_cookies_from_netscape_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cookie_file = Path(directory) / "cookies.txt"
+            cookie_file.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            options = self.options(cookies_mode="file", cookies_file=str(cookie_file))
+            self.assertEqual(options["cookiefile"], str(cookie_file))
+            self.assertNotIn("cookiesfrombrowser", options)
+
+    def test_missing_cookies_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "missing-cookies.txt")
+            with self.assertRaisesRegex(FileNotFoundError, "Файл cookies не найден"):
+                self.options(cookies_mode="file", cookies_file=path)
 
 
 if __name__ == "__main__":

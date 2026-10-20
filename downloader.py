@@ -57,6 +57,16 @@ def build_download_options(
         "progress_hooks": [progress_hook],
         "postprocessor_hooks": [postprocessor_hook],
     }
+    cookies_mode = settings.get("cookies_mode", "none")
+    if cookies_mode == "browser":
+        options["cookiesfrombrowser"] = (settings["cookies_browser"],)
+    elif cookies_mode == "file":
+        cookies_file = Path(settings["cookies_file"]).expanduser()
+        if not cookies_file.is_file():
+            raise FileNotFoundError(
+                f"Файл cookies не найден: {cookies_file}. Проверьте настройки."
+            )
+        options["cookiefile"] = str(cookies_file)
     if settings["mode"] == "audio":
         options["format"] = "bestaudio/best"
         options["postprocessors"] = [{
@@ -148,6 +158,13 @@ class DownloadWorker(QObject):
             if self._cancel_requested.is_set() or isinstance(exc, DownloadCancelled):
                 self.finished.emit(False, "Загрузка отменена.")
             else:
-                self.finished.emit(False, f"Ошибка загрузки: {exc}")
+                message = str(exc)
+                if "Sign in to confirm you're not a bot" in message:
+                    message = (
+                        "YouTube требует подтвердить вход. Откройте «Настройки» "
+                        "и выберите cookies из браузера, где вы вошли в YouTube, "
+                        "или укажите файл cookies.txt."
+                    )
+                self.finished.emit(False, f"Ошибка загрузки: {message}")
         else:
             self.finished.emit(True, "Готово! Файл сохранён в выбранной папке.")

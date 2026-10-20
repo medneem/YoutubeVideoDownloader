@@ -64,25 +64,63 @@ def open_download_folder(folder: str) -> bool:
 
 
 
-class ProxySettingsDialog(QDialog):
+class SettingsDialog(QDialog):
     def __init__(self, settings: dict, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Настройки HTTP-прокси")
-        self.setMinimumWidth(440)
+        self.setWindowTitle("Настройки")
+        self.setMinimumWidth(540)
+
+        proxy_group = QGroupBox("HTTP-прокси")
+        proxy_form = QFormLayout(proxy_group)
         self.proxy_enabled = QCheckBox("Использовать HTTP-прокси")
         self.proxy_enabled.setChecked(settings["proxy_enabled"])
         self.proxy_url = QLineEdit(settings["proxy_url"])
         self.proxy_url.setPlaceholderText("http://127.0.0.1:8118")
         self.proxy_enabled.toggled.connect(self.proxy_url.setEnabled)
         self.proxy_url.setEnabled(self.proxy_enabled.isChecked())
+        proxy_form.addRow(self.proxy_enabled)
+        proxy_form.addRow("Адрес прокси:", self.proxy_url)
 
-        form = QFormLayout()
-        form.addRow(self.proxy_enabled)
-        form.addRow("Адрес прокси:", self.proxy_url)
+        cookies_group = QGroupBox("Авторизация YouTube (cookies)")
+        cookies_form = QFormLayout(cookies_group)
+        self.cookies_mode = QComboBox()
+        self.cookies_mode.addItem("Без cookies", "none")
+        self.cookies_mode.addItem("Cookies из браузера", "browser")
+        self.cookies_mode.addItem("Cookies из файла", "file")
+        self.cookies_mode.setCurrentIndex(
+            max(0, self.cookies_mode.findData(settings["cookies_mode"]))
+        )
+
+        self.cookies_browser = QComboBox()
+        for label, browser in (
+            ("Google Chrome", "chrome"),
+            ("Mozilla Firefox", "firefox"),
+            ("Microsoft Edge", "edge"),
+        ):
+            self.cookies_browser.addItem(label, browser)
+        self.cookies_browser.setCurrentIndex(
+            max(0, self.cookies_browser.findData(settings["cookies_browser"]))
+        )
+
+        self.cookies_file = QLineEdit(settings["cookies_file"])
+        self.cookies_file.setPlaceholderText("Путь к cookies.txt (формат Netscape)")
+        self.cookies_file_browse = QPushButton("Обзор…")
+        self.cookies_file_browse.clicked.connect(self.choose_cookies_file)
+        file_row = QHBoxLayout()
+        file_row.addWidget(self.cookies_file, 1)
+        file_row.addWidget(self.cookies_file_browse)
+
+        cookies_form.addRow("Режим:", self.cookies_mode)
+        cookies_form.addRow("Браузер:", self.cookies_browser)
+        cookies_form.addRow("Файл cookies:", file_row)
+        self.cookies_mode.currentIndexChanged.connect(self._update_cookies_controls)
+        self._update_cookies_controls()
 
         hint = QLabel(
-            "Поддерживаются HTTP и HTTPS-прокси. Если адрес содержит "
-            "логин и пароль, они сохраняются открытым текстом в config.json."
+            "Для cookies из браузера войдите в YouTube в выбранном браузере. "
+            "Если браузер не отдаёт cookies, закройте его и повторите попытку "
+            "или укажите файл cookies.txt в формате Netscape. "
+            "Не передавайте cookies другим людям: они дают доступ к аккаунту."
         )
         hint.setWordWrap(True)
 
@@ -96,9 +134,27 @@ class ProxySettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form)
+        layout.addWidget(proxy_group)
+        layout.addWidget(cookies_group)
         layout.addWidget(hint)
         layout.addWidget(buttons)
+
+    def _update_cookies_controls(self) -> None:
+        browser_selected = self.cookies_mode.currentData() == "browser"
+        file_selected = self.cookies_mode.currentData() == "file"
+        self.cookies_browser.setEnabled(browser_selected)
+        self.cookies_file.setEnabled(file_selected)
+        self.cookies_file_browse.setEnabled(file_selected)
+
+    def choose_cookies_file(self) -> None:
+        current = self.cookies_file.text().strip()
+        initial_dir = str(Path(current).expanduser().parent) if current else str(Path.home())
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Выберите cookies.txt", initial_dir,
+            "Текстовые файлы (*.txt);;Все файлы (*)",
+        )
+        if path:
+            self.cookies_file.setText(path)
 
     def accept(self) -> None:
         address = self.proxy_url.text().strip()
@@ -108,8 +164,21 @@ class ProxySettingsDialog(QDialog):
             except ValueError as exc:
                 QMessageBox.warning(self, "Неверный прокси", str(exc))
                 return
+
+        cookies_mode = self.cookies_mode.currentData()
+        cookies_file = self.cookies_file.text().strip()
+        if cookies_mode == "file" and not Path(cookies_file).expanduser().is_file():
+            QMessageBox.warning(
+                self, "Файл cookies не найден",
+                "Выберите существующий файл cookies.txt в формате Netscape.",
+            )
+            return
+
         self.result_proxy_enabled = self.proxy_enabled.isChecked()
         self.result_proxy_url = address
+        self.result_cookies_mode = cookies_mode
+        self.result_cookies_browser = self.cookies_browser.currentData()
+        self.result_cookies_file = cookies_file
         super().accept()
 
 
@@ -239,21 +308,21 @@ class MainWindow(QMainWindow):
             self._save_preferences()
 
     def open_settings(self) -> None:
-        dialog = ProxySettingsDialog(self.settings, self)
+        dialog = SettingsDialog(self.settings, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_settings = self.settings.copy()
             new_settings["proxy_enabled"] = dialog.result_proxy_enabled
             new_settings["proxy_url"] = dialog.result_proxy_url
+            new_settings["cookies_mode"] = dialog.result_cookies_mode
+            new_settings["cookies_browser"] = dialog.result_cookies_browser
+            new_settings["cookies_file"] = dialog.result_cookies_file
             try:
                 save_settings(new_settings)
             except (ValueError, OSError) as exc:
                 QMessageBox.critical(self, "Не удалось сохранить настройки", str(exc))
                 return
             self.settings = new_settings
-            self.status.setText(
-                "Прокси включён." if self.settings["proxy_enabled"]
-                else "Прямое подключение (без прокси)."
-            )
+            self.status.setText("Настройки сохранены.")
 
     def start_download(self) -> None:
         if self.thread is not None:

@@ -57,6 +57,41 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(value["quality"], "720")
         self.assertIn("proxy_enabled", value)
 
+    def test_old_config_without_cookies_is_compatible(self):
+        settings = normalize_settings({
+            "mode": "audio",
+            "quality": "720",
+            "proxy_enabled": False,
+            "proxy_url": "",
+        })
+        self.assertEqual(settings["cookies_mode"], "none")
+        self.assertEqual(settings["cookies_browser"], "chrome")
+        self.assertEqual(settings["cookies_file"], "")
+
+    def test_cookie_settings_roundtrip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = default_settings()
+            settings["cookies_mode"] = "browser"
+            settings["cookies_browser"] = "firefox"
+            save_settings(settings, Path(directory))
+            self.assertEqual(load_settings(Path(directory)), settings)
+            settings["cookies_mode"] = "file"
+            settings["cookies_file"] = "C:/Users/User/cookies.txt"
+            save_settings(settings, Path(directory))
+            self.assertEqual(load_settings(Path(directory)), settings)
+
+    def test_invalid_cookie_configuration(self):
+        cases = (
+            {"cookies_mode": "unknown"},
+            {"cookies_browser": "unknown"},
+            {"cookies_file": 123},
+            {"cookies_mode": "file", "cookies_file": "  "},
+        )
+        for change in cases:
+            with self.subTest(change=change):
+                with self.assertRaises(ValueError):
+                    normalize_settings(change)
+
 
 if __name__ == "__main__":
     unittest.main()

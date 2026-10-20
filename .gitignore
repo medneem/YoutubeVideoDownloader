@@ -2,6 +2,11 @@
 config.json
 config.json.tmp
 
+# Session cookies are confidential; never commit browser exports
+cookies.txt
+cookies-*.txt
+*.cookies.txt
+
 # Python
 __pycache__/
 *.py[cod]

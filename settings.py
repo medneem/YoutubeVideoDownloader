@@ -10,6 +10,8 @@ from urllib.parse import urlsplit
 
 VALID_MODES = {"video", "audio"}
 VALID_QUALITIES = {"best", "2160", "1440", "1080", "720", "480", "360"}
+VALID_COOKIES_MODES = {"none", "browser", "file"}
+VALID_COOKIES_BROWSERS = {"chrome", "firefox", "edge"}
 
 
 def application_directory() -> Path:
@@ -26,6 +28,9 @@ def default_settings() -> dict[str, Any]:
         "quality": "best",
         "proxy_enabled": False,
         "proxy_url": "",
+        "cookies_mode": "none",
+        "cookies_browser": "chrome",
+        "cookies_file": "",
     }
 
 
@@ -74,6 +79,15 @@ def normalize_settings(raw: dict[str, Any]) -> dict[str, Any]:
     values["proxy_url"] = values["proxy_url"].strip()
     if values["proxy_enabled"]:
         values["proxy_url"] = validate_http_proxy(values["proxy_url"])
+    if not isinstance(values["cookies_mode"], str) or values["cookies_mode"] not in VALID_COOKIES_MODES:
+        raise ValueError("Недопустимый режим cookies.")
+    if not isinstance(values["cookies_browser"], str) or values["cookies_browser"] not in VALID_COOKIES_BROWSERS:
+        raise ValueError("Недопустимый браузер для cookies.")
+    if not isinstance(values["cookies_file"], str):
+        raise ValueError("cookies_file должен быть строкой.")
+    values["cookies_file"] = values["cookies_file"].strip()
+    if values["cookies_mode"] == "file" and not values["cookies_file"]:
+        raise ValueError("Укажите путь к файлу cookies.txt.")
     return values
 
 
